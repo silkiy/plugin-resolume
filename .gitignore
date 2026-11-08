@@ -1,0 +1,25 @@
+# Downloaded SDKs and generated build output
+.build/
+dist/
+cmake-build-*/
+
+# Local Visual Studio and CMake settings
+.vs/
+CMakeUserPresets.json
+*.user
+*.suo
+
+# Native build artifacts
+*.dll
+*.exe
+*.exp
+*.ilk
+*.lib
+*.obj
+*.pdb
+
+# Local settings and diagnostics
+.env
+.env.*
+!.env.example
+*.log
