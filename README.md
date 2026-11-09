@@ -1,6 +1,6 @@
 # Resolume FFGL Plugins
 
-Three Windows x64 FFGL video sources for Resolume Arena and Avenue. Each plugin is an independent C++17 project with its own build script and operating guide.
+Windows x64 FFGL video sources and effects for Resolume Arena and Avenue. Each plugin is an independent C++17 project with its own build script and operating guide.
 
 [Build on Windows](#build-on-windows) · [Install and load a plugin](#install-and-load-a-plugin) · [Troubleshooting](#troubleshooting)
 
@@ -28,6 +28,14 @@ A test source for LED-wall setup. **Cabinet Map** draws row-major cabinet number
 
 The shader uses integer framebuffer coordinates to keep the patterns aligned after a viewport resize. For physical LED tests, preserve 1:1 mapping through Resolume and the LED processor. [Usage and build guide](LEDPanelCheck/README.md) · [Source code](LEDPanelCheck/src)
 
+## BeatMosaic
+
+An audio-reactive effect for live VJ visuals. **Slice**, **Wave**, **Shuffle**, and **Strobe** apply brief accents to an existing clip or layer. It can follow the default Windows playback or recording device, Resolume FFT, or the Resolume beat grid. **Hit** provides a manual accent.
+
+![BeatMosaic showing a synthetic clip before and after a 4 × 4 Shuffle Hit](docs/images/beat-mosaic.png)
+
+[Usage and build guide](BeatMosaic/README.md) · [Source code](BeatMosaic/src)
+
 ## Build on Windows
 
 The plugins target 64-bit Windows and Resolume Arena or Avenue 7.3.1 or later, with an OpenGL 4.1-capable graphics driver. For Screen Capture's **Window** mode, use Windows 10 version 1903 or later and Resolume 7.4.1 or later for the refreshable window menu. [Resolume system requirements](https://resolume.com/support/tech-specs) · [FFGL SDK compatibility](https://github.com/resolume/ffgl) · [Windows capture requirements](https://learn.microsoft.com/en-us/windows/win32/api/windows.graphics.capture.interop/nf-windows-graphics-capture-interop-igraphicscaptureiteminterop-createforwindow)
@@ -40,6 +48,7 @@ Run the script for the plugin you want to build from the repository root.
 .\ScreenCapture\build.ps1
 .\CueTimer\build.ps1
 .\LEDPanelCheck\build.ps1
+.\BeatMosaic\build.ps1
 ```
 
 Each script downloads the same [pinned Resolume FFGL SDK](https://github.com/resolume/ffgl/tree/5b6e07840277df9ec35a228b9eb067636316350f) when its local cache is empty, verifies the archive's SHA-256, and builds an x64 Release DLL. The first uncached build needs access to `codeload.github.com`.
@@ -49,6 +58,7 @@ Each script downloads the same [pinned Resolume FFGL SDK](https://github.com/res
 | Screen Capture | `ScreenCapture\dist\ScreenCapture.dll` |
 | CueTimer | `CueTimer\dist\CueTimer.dll` |
 | LEDPanelCheck | `LEDPanelCheck\dist\LEDPanelCheck.dll` |
+| BeatMosaic | `BeatMosaic\dist\BeatMosaic.dll` |
 
 Each `dist` folder also contains its `THIRD-PARTY-NOTICES.txt`. Keep that file with the DLL when distributing a build.
 
@@ -56,10 +66,10 @@ Each `dist` folder also contains its `THIRD-PARTY-NOTICES.txt`. Keep that file w
 
 1. Build the plugin you want and locate its DLL in the table above.
 2. Close Resolume. Open **Documents** in File Explorer and copy the DLL to `Resolume Arena\Extra Effects` or `Resolume Avenue\Extra Effects`, depending on your edition. Create **Extra Effects** if needed. Use the Documents location shown by Windows if the folder is redirected to OneDrive.
-3. Open Resolume and select **Sources**. Search for **Screen Capture**, **CueTimer**, or **LEDPanelCheck**, then drag the source to an empty clip slot.
-4. Trigger the clip and open the **Clip** panel to adjust the plugin's controls. Follow the linked project guide for its full workflow.
+3. Open Resolume. Drag **Screen Capture**, **CueTimer**, or **LEDPanelCheck** from **Sources** to an empty clip slot. For **BeatMosaic**, drag it from **Effects** onto an existing visual clip, layer, or composition.
+4. Trigger the visual clip and adjust the plugin in its clip or effect panel. Follow the linked project guide for its full workflow.
 
-To load plugins from another directory, add the directory in **Preferences → Video → FFGL Directories** and restart Resolume. To update or uninstall a plugin, close Resolume and replace or remove its DLL from the scanned directory before relaunching. [Resolume user folders](https://resolume.com/support/en/directory-list) · [FFGL directories](https://resolume.com/support/en/preferences) · [Sources](https://resolume.com/support/en/sources)
+To load plugins from another directory, add the directory in **Preferences → Video → FFGL Directories** and restart Resolume. To update or uninstall a plugin, close Resolume and replace or remove its DLL from the scanned directory before relaunching. [Resolume user folders](https://resolume.com/support/en/directory-list) · [FFGL directories](https://resolume.com/support/en/preferences) · [Sources](https://resolume.com/support/en/sources) · [Effects](https://resolume.com/support/en/effects)
 
 ## Troubleshooting
 
@@ -68,13 +78,13 @@ To load plugins from another directory, add the directory in **Preferences → V
 | The build script cannot find CMake or the compiler | Check for Visual Studio 2022's **Desktop development with C++** workload, the Windows SDK, and CMake 3.21 or later. |
 | The SDK download fails | Check that the build machine can reach `codeload.github.com`, then rerun the script. |
 | The SDK archive checksum does not match | Remove the downloaded archive at the path reported by the script, then rerun it to download and verify a fresh copy. |
-| The plugin is missing after restart | Confirm that the x64 DLL is in the folder for your Resolume edition or in a configured FFGL directory. Search the **Sources** tab for the name shown above. |
+| The plugin is missing after restart | Confirm that the x64 DLL is in the folder for your Resolume edition or in a configured FFGL directory. Search **Effects** for BeatMosaic or **Sources** for the other plugins. |
 | The build cannot overwrite the DLL | Close Resolume if it is loading the DLL directly from `dist`, then rebuild. |
 
-For source-specific symptoms, see [Screen Capture](ScreenCapture/README.md#troubleshooting), [CueTimer](CueTimer/README.md#troubleshooting), or [LEDPanelCheck](LEDPanelCheck/README.md#troubleshooting).
+For plugin-specific symptoms, see [Screen Capture](ScreenCapture/README.md#troubleshooting), [CueTimer](CueTimer/README.md#troubleshooting), [LEDPanelCheck](LEDPanelCheck/README.md#troubleshooting), or [BeatMosaic](BeatMosaic/README.md#troubleshooting).
 
 ## Verification
 
-The previews come from plugin output rendered in standalone FFGL/OpenGL hosts. The tests covered window switching and resize, timer controls and transparency, and exact one-pixel output and cabinet numbering. Live verification in Resolume Arena and on a physical LED wall remains pending.
+The previews come from plugin output rendered in standalone FFGL/OpenGL hosts. The tests covered window switching and resize, timer controls and transparency, exact one-pixel output and cabinet numbering, and BeatMosaic rendering and simulated triggers. Windows playback loopback was also verified separately. Live verification in Resolume Arena and on a physical LED wall remains pending.
 
-Third-party notices are available alongside each project. [Screen Capture](ScreenCapture/THIRD-PARTY-NOTICES.txt) · [CueTimer](CueTimer/THIRD-PARTY-NOTICES.txt) · [LEDPanelCheck](LEDPanelCheck/THIRD-PARTY-NOTICES.txt)
+Third-party notices are available alongside each project. [Screen Capture](ScreenCapture/THIRD-PARTY-NOTICES.txt) · [CueTimer](CueTimer/THIRD-PARTY-NOTICES.txt) · [LEDPanelCheck](LEDPanelCheck/THIRD-PARTY-NOTICES.txt) · [BeatMosaic](BeatMosaic/THIRD-PARTY-NOTICES.txt)
