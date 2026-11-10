@@ -36,6 +36,12 @@ An audio-reactive effect for live VJ visuals. **Slice**, **Wave**, **Shuffle**, 
 
 [Usage and build guide](BeatMosaic/README.md) · [Source code](BeatMosaic/src)
 
+## LyricsDisplay
+
+A synchronized one-line lyric overlay for Resolume. It reads local `.LRC` files and can
+optionally query LRCLIB using an artist/title file, while keeping local lyrics available
+as a fallback. [Usage and build guide](LyricsDisplay/README.md) · [Source code](LyricsDisplay/src)
+
 ## Build on Windows
 
 The plugins target 64-bit Windows and Resolume Arena or Avenue 7.3.1 or later, with an OpenGL 4.1-capable graphics driver. For Screen Capture's **Window** mode, use Windows 10 version 1903 or later and Resolume 7.4.1 or later for the refreshable window menu. [Resolume system requirements](https://resolume.com/support/tech-specs) · [FFGL SDK compatibility](https://github.com/resolume/ffgl) · [Windows capture requirements](https://learn.microsoft.com/en-us/windows/win32/api/windows.graphics.capture.interop/nf-windows-graphics-capture-interop-igraphicscaptureiteminterop-createforwindow)
@@ -49,6 +55,7 @@ Run the script for the plugin you want to build from the repository root.
 .\CueTimer\build.ps1
 .\LEDPanelCheck\build.ps1
 .\BeatMosaic\build.ps1
+.\LyricsDisplay\build.ps1
 ```
 
 Each script downloads the same [pinned Resolume FFGL SDK](https://github.com/resolume/ffgl/tree/5b6e07840277df9ec35a228b9eb067636316350f) when its local cache is empty, verifies the archive's SHA-256, and builds an x64 Release DLL. The first uncached build needs access to `codeload.github.com`.
@@ -59,6 +66,7 @@ Each script downloads the same [pinned Resolume FFGL SDK](https://github.com/res
 | CueTimer | `CueTimer\dist\CueTimer.dll` |
 | LEDPanelCheck | `LEDPanelCheck\dist\LEDPanelCheck.dll` |
 | BeatMosaic | `BeatMosaic\dist\BeatMosaic.dll` |
+| LyricsDisplay | `LyricsDisplay\dist\LyricsDisplay.dll` |
 
 Each `dist` folder also contains its `THIRD-PARTY-NOTICES.txt`. Keep that file with the DLL when distributing a build.
 
@@ -81,7 +89,7 @@ To load plugins from another directory, add the directory in **Preferences → V
 | The plugin is missing after restart | Confirm that the x64 DLL is in the folder for your Resolume edition or in a configured FFGL directory. Search **Effects** for BeatMosaic or **Sources** for the other plugins. |
 | The build cannot overwrite the DLL | Close Resolume if it is loading the DLL directly from `dist`, then rebuild. |
 
-For plugin-specific symptoms, see [Screen Capture](ScreenCapture/README.md#troubleshooting), [CueTimer](CueTimer/README.md#troubleshooting), [LEDPanelCheck](LEDPanelCheck/README.md#troubleshooting), or [BeatMosaic](BeatMosaic/README.md#troubleshooting).
+For plugin-specific symptoms, see [Screen Capture](ScreenCapture/README.md#troubleshooting), [CueTimer](CueTimer/README.md#troubleshooting), [LEDPanelCheck](LEDPanelCheck/README.md#troubleshooting), [BeatMosaic](BeatMosaic/README.md#troubleshooting), or [LyricsDisplay](LyricsDisplay/README.md).
 
 ## Verification
 
