@@ -47,7 +47,8 @@ The Windows input modes detect transients in the bass range. **Resolume FFT** re
 | **Pattern** | **Slice** | Chooses the visual response described below. |
 | **Grid** | **4 x 4** | Uses four or eight slices per frame in **Slice**, or a square grid in **Wave** and **Shuffle**. |
 | **Rate** | **Every Beat** | Responds to every detected accent or every second or fourth accent. In **Resolume BPM** mode, the interval uses host beats. |
-| **Amount** | `65%` | Sets effect strength. At `0%`, the original image passes through. |
+| **Amount** | `65%` | Sets the base effect strength. At `0%`, the original image passes through. |
+| **Brightness** | `100%` | Multiplies the effect strength for every pattern. Use values above `100%` for a stronger Slice, Wave, Shuffle, or Strobe accent. Range `0–400%`. |
 | **Sensitivity** | `65%` | Increases or decreases responsiveness to audio accents. |
 | **Decay** | `180` ms | Sets how long an accent takes to fade back toward the original frame. Range `80–600` ms. |
 | **Audio Level** | `0%` | Receives the FFT level in **Resolume FFT** mode. |
@@ -58,7 +59,7 @@ The Windows input modes detect transients in the bass range. **Resolume FFT** re
 | **Slice** | Alternating horizontal strips shift in opposite directions and slide back as the accent decays. |
 | **Wave** | Tiles move with a staggered wave across the grid. |
 | **Shuffle** | The tiles are rearranged on a trigger and blend back toward the original image. |
-| **Strobe** | A brief lift in the brightness of the existing pixels, with the original transparency preserved. The shader blends up to 25% toward white. Pulses last at most 140 ms and start at least 350 ms apart. |
+| **Strobe** | A brief lift in the brightness of the existing pixels, with the original transparency preserved. Brightness controls the white flash intensity; at high values it can reach full white. Pulses last at most 140 ms and start at least 350 ms apart. |
 
 To accent a drop manually, select **Manual**, choose **Slice** or **Shuffle**, and press **Hit** on cue. The effect returns to the original visual after the accent. BeatMosaic analyzes audio locally while it renders and keeps only level measurements for the visual response.
 

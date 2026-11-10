@@ -51,7 +51,7 @@ void main()
 
     if (pattern == 3) {
         // Lift the current content toward premultiplied white without changing alpha.
-        fragColor = vec4(mix(original.rgb, vec3(original.a), 0.25 * strength), original.a);
+        fragColor = vec4(mix(original.rgb, vec3(original.a), 0.5 * strength), original.a);
         return;
     }
 

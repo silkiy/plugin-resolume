@@ -15,10 +15,13 @@ using Clock = std::chrono::steady_clock;
 using Time = Clock::time_point;
 using namespace std::chrono_literals;
 
-enum Parameter : FFUInt32 { Input, Pattern, Grid, Rate, Amount, Sensitivity, Decay, AudioLevel, Hit, ParameterCount };
+enum Parameter : FFUInt32 {
+    Input, Pattern, Grid, Rate, Amount, Brightness, Sensitivity, Decay, AudioLevel, Hit, ParameterCount
+};
 enum InputMode { WindowsOutput, WindowsInput, ResolumeFft, ResolumeBpm, Manual };
 constexpr int strobePattern = 3;
 constexpr float defaultAmount = 0.65f;
+constexpr float defaultBrightness = 100.0f;
 constexpr float defaultSensitivity = 0.65f;
 constexpr float defaultDecay = 180.0f;
 constexpr float minDecay = 80.0f;
@@ -79,6 +82,8 @@ public:
         SetParamElementInfo(Rate, 1, "Every 2 Beats", 2.0f);
         SetParamElementInfo(Rate, 2, "Every 4 Beats", 4.0f);
         SetParamInfo(Amount, "Amount", FF_TYPE_STANDARD, defaultAmount);
+        SetParamInfo(Brightness, "Brightness", FF_TYPE_INTEGER, defaultBrightness);
+        SetParamRange(Brightness, 0.0f, 400.0f);
         SetParamInfo(Sensitivity, "Sensitivity", FF_TYPE_STANDARD, defaultSensitivity);
         SetParamInfo(Decay, "Decay", FF_TYPE_INTEGER, defaultDecay);
         SetParamRange(Decay, minDecay, maxDecay);
@@ -112,6 +117,9 @@ public:
             break;
         case Decay:
             value = std::round(std::clamp(value, minDecay, maxDecay));
+            break;
+        case Brightness:
+            value = std::round(std::clamp(value, 0.0f, 400.0f));
             break;
         case Hit:
             if (value > 0.0f) {
@@ -187,7 +195,8 @@ public:
         glUniform1i(patternLocation_, pattern);
         glUniform1i(gridLocation_, static_cast<int>(values_[Grid].load()));
         glUniform1i(stepLocation_, static_cast<int>(stepIndex_));
-        glUniform1f(amountLocation_, values_[Amount].load());
+        const float brightness = values_[Brightness].load() / 100.0f;
+        glUniform1f(amountLocation_, values_[Amount].load() * brightness);
         glUniform1f(pulseLocation_, Pulse(pattern, now));
         quad_.Draw();
         return FF_SUCCESS;
@@ -307,7 +316,10 @@ private:
         return remaining * remaining;
     }
 
-    std::atomic<float> values_[Hit]{0.0f, 0.0f, 4.0f, 1.0f, defaultAmount, defaultSensitivity, defaultDecay, 0.0f};
+    std::atomic<float> values_[Hit]{
+        0.0f, 0.0f, 4.0f, 1.0f, defaultAmount, defaultBrightness,
+        defaultSensitivity, defaultDecay, 0.0f
+    };
     std::atomic<float> hostPhase_{-1.0f};
     std::atomic<bool> hitRequested_{false};
     WindowsAudio audio_;
