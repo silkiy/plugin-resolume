@@ -1,4 +1,5 @@
 #include "LrcParser.h"
+#include "LyricsJson.h"
 #include "WindowsAudio.h"
 
 #define NOMINMAX
@@ -9,15 +10,18 @@
 #include <winhttp.h>
 
 #include <FFGLSDK.h>
+#include "PluginPaths.h"
 
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -51,22 +55,30 @@ void main() {
 constexpr char fragmentShader[] = R"(#version 410 core
 uniform sampler2D lyrics;
 uniform float opacity;
+uniform vec2 canvasScale;
 in vec2 uv;
 out vec4 color;
 void main() {
-    color = texture(lyrics, uv) * opacity;
+    vec2 source = (uv - 0.5) * canvasScale + 0.5;
+    if (any(lessThan(source, vec2(0.0))) || any(greaterThan(source, vec2(1.0)))) {
+        color = vec4(0.0);
+        return;
+    }
+    color = texture(lyrics, vec2(source.x, 1.0 - source.y)) * opacity;
 }
 )";
 
 struct TextureBitmap {
     HBITMAP bitmap = nullptr;
     HDC dc = nullptr;
+    HGDIOBJ previous = nullptr;
     void* pixels = nullptr;
     static constexpr int width = 2048;
     static constexpr int height = 256;
 
     bool Create()
     {
+        Release();
         dc = CreateCompatibleDC(nullptr);
         if (!dc) return false;
         BITMAPINFO info{};
@@ -78,15 +90,21 @@ struct TextureBitmap {
         info.bmiHeader.biCompression = BI_RGB;
         bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
         if (!bitmap) return false;
-        SelectObject(dc, bitmap);
+        previous = SelectObject(dc, bitmap);
         return true;
     }
 
-    ~TextureBitmap()
+    void Release()
     {
+        if (dc && previous) SelectObject(dc, previous);
         if (bitmap) DeleteObject(bitmap);
         if (dc) DeleteDC(dc);
+        bitmap = nullptr;
+        dc = nullptr;
+        previous = nullptr;
+        pixels = nullptr;
     }
+    ~TextureBitmap() { Release(); }
 };
 
 std::wstring ToWide(const std::string& value)
@@ -99,14 +117,6 @@ std::wstring ToWide(const std::string& value)
     MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
                         static_cast<int>(value.size()), result.data(), size);
     return result;
-}
-
-std::wstring ConfigDirectory()
-{
-    wchar_t userProfile[MAX_PATH]{};
-    const auto length = GetEnvironmentVariableW(L"USERPROFILE", userProfile, MAX_PATH);
-    if (length == 0 || length >= MAX_PATH) return {};
-    return std::wstring(userProfile) + L"\\Documents\\Resolume\\LyricsDisplay";
 }
 
 std::string UrlEncode(const std::string& value)
@@ -162,6 +172,10 @@ std::string OnlineLyrics(const std::string& artist, const std::string& title)
     std::string body;
     DWORD available = 0;
     while (WinHttpQueryDataAvailable(request, &available) && available > 0) {
+        if (available > 4 * 1024 * 1024 || body.size() + available > 4 * 1024 * 1024) {
+            body.clear();
+            break;
+        }
         std::string chunk(available, '\0');
         DWORD read = 0;
         if (!WinHttpReadData(request, chunk.data(), available, &read)) break;
@@ -172,20 +186,7 @@ std::string OnlineLyrics(const std::string& artist, const std::string& title)
     WinHttpCloseHandle(connection);
     WinHttpCloseHandle(session);
 
-    const auto key = body.find("\"syncedLyrics\":\"");
-    if (key == std::string::npos) return {};
-    const auto begin = key + 16;
-    std::string lyrics;
-    for (std::size_t index = begin; index < body.size(); ++index) {
-        if (body[index] == '"' && (index == begin || body[index - 1] != '\\')) break;
-        if (body[index] == '\\' && index + 1 < body.size()) {
-            const char escaped = body[++index];
-            lyrics += escaped == 'n' ? '\n' : escaped == 'r' ? '\r' : escaped;
-        } else {
-            lyrics += body[index];
-        }
-    }
-    return lyrics;
+    return ExtractSyncedLyrics(body);
 }
 
 class LyricsDisplay final : public CFFGLPlugin {
@@ -208,13 +209,18 @@ public:
         SetParamInfo(Opacity, "Opacity", FF_TYPE_STANDARD, 1.0f);
         SetParamRange(Opacity, 0.0f, 1.0f);
         audio_.SetEndpoint(AudioEndpoint::Output);
-        Load(false);
+        loaderThread_ = std::thread([this] { RunLoader(); });
+        Load();
     }
 
     ~LyricsDisplay() override
     {
-        stopOnline_.store(true);
-        if (onlineThread_.joinable()) onlineThread_.join();
+        {
+            const std::lock_guard lock(loaderMutex_);
+            stopLoader_ = true;
+        }
+        loaderWake_.notify_one();
+        if (loaderThread_.joinable()) loaderThread_.join();
     }
 
     FFResult SetFloatParameter(FFUInt32 index, float value) override
@@ -223,14 +229,13 @@ public:
         if (index == Source) {
             if (value < 0.0f || value > 2.0f || value != std::floor(value)) return FF_FAIL;
             source_.store(static_cast<int>(value));
-            Load(false);
+            Load();
         } else if (index == Start && value > 0.0f) {
-            startedAt_ = Clock::now();
-            running_.store(true);
+            playback_.store(Playback::Start);
         } else if (index == Stop && value > 0.0f) {
-            running_.store(false);
+            playback_.store(Playback::Stop);
         } else if (index == Reload && value > 0.0f) {
-            Load(true);
+            Load();
         } else if (index == Offset) {
             offsetMs_.store(static_cast<int>(std::lround(std::clamp(value, -10000.0f, 10000.0f))));
         } else if (index == FontSize) {
@@ -272,17 +277,29 @@ public:
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TextureBitmap::width, TextureBitmap::height,
                      0, GL_BGRA, GL_UNSIGNED_BYTE, bitmap_.pixels);
         opacityLocation_ = shader_.FindUniform("opacity");
+        scaleLocation_ = shader_.FindUniform("canvasScale");
+        textureDirty_.store(true);
         return CFFGLPlugin::InitGL(viewport);
     }
 
     FFResult ProcessOpenGL(ProcessOpenGLStruct*) override
     {
-        const auto peak = audio_.TakePeak();
-        if (!running_.load() && peak >= 0.12f) {
+        const auto command = playback_.exchange(Playback::None);
+        if (command == Playback::Start) {
             startedAt_ = Clock::now();
-            running_.store(true);
+            running_ = true;
+            autoStartArmed_ = false;
+        } else if (command == Playback::Stop) {
+            running_ = false;
+            autoStartArmed_ = false;
         }
-        const auto elapsed = running_.load()
+        const auto peak = audio_.TakePeak();
+        if (autoStartArmed_ && peak >= 0.12f) {
+            startedAt_ = Clock::now();
+            running_ = true;
+            autoStartArmed_ = false;
+        }
+        const auto elapsed = running_
             ? std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - startedAt_).count() +
                   offsetMs_.load()
             : -1LL;
@@ -296,7 +313,8 @@ public:
                 }
             }
         }
-        if (text != currentText_ || textureDirty_.exchange(false)) {
+        const bool dirty = textureDirty_.exchange(false);
+        if (text != currentText_ || dirty) {
             currentText_ = text;
             UpdateTexture(text);
         }
@@ -304,6 +322,9 @@ public:
         ffglex::Scoped2DTextureBinding binding(texture_);
         ffglex::ScopedShaderBinding shaderBinding(shader_.GetGLID());
         glUniform1f(opacityLocation_, opacity_.load());
+        const float aspect = currentViewport.height ? static_cast<float>(currentViewport.width) / currentViewport.height : 1.0f;
+        constexpr float canvasAspect = static_cast<float>(TextureBitmap::width) / TextureBitmap::height;
+        glUniform2f(scaleLocation_, std::max(1.0f, aspect / canvasAspect), std::max(1.0f, canvasAspect / aspect));
         quad_.Draw();
         return FF_SUCCESS;
     }
@@ -314,40 +335,54 @@ public:
         texture_ = 0;
         shader_.FreeGLResources();
         quad_.Release();
+        bitmap_.Release();
         return FF_SUCCESS;
     }
 
 private:
-    void Load(bool forceOnline)
+    void Load()
     {
-        const auto directory = ConfigDirectory();
-        if (directory.empty()) return;
-        std::error_code error;
-        std::filesystem::create_directories(directory, error);
-        const auto local = ReadUtf8File(directory + L"\\lyrics.lrc");
-        const auto track = ReadUtf8File(directory + L"\\track.txt");
-        std::string artist;
-        std::string title;
-        const auto split = track.find('\n');
-        if (split != std::string::npos) {
-            artist = track.substr(0, split);
-            title = track.substr(split + 1);
+        {
+            const std::lock_guard lock(loaderMutex_);
+            ++loadRevision_;
         }
-        const int mode = source_.load();
-        if (mode == 0 || (mode == 2 && !forceOnline && !local.empty())) {
-            SetLines(ParseLrc(local));
-            return;
-        }
-        if (mode == 1 || mode == 2) {
-            stopOnline_.store(true);
-            if (onlineThread_.joinable()) onlineThread_.join();
-            stopOnline_.store(false);
-            onlineThread_ = std::thread([this, artist, title, local] {
-                auto result = OnlineLyrics(artist, title);
-                if (stopOnline_.load()) return;
-                if (result.empty()) result = local;
-                SetLines(ParseLrc(result));
-            });
+        loaderWake_.notify_one();
+    }
+
+    void RunLoader()
+    {
+        unsigned revision = 0;
+        while (true) {
+            {
+                std::unique_lock lock(loaderMutex_);
+                loaderWake_.wait(lock, [&] { return stopLoader_ || loadRevision_ != revision; });
+                if (stopLoader_) return;
+                revision = loadRevision_;
+            }
+            const int mode = source_.load();
+            const auto local = ReadUtf8File(pluginfiles::ConfigFile(L"LyricsDisplay", L"lyrics.lrc").wstring());
+            auto lines = ParseLrc(local);
+            if (mode == 1 || (mode == 2 && lines.empty())) {
+                auto track = ReadUtf8File(pluginfiles::ConfigFile(L"LyricsDisplay", L"track.txt").wstring());
+                if (track.compare(0, 3, "\xEF\xBB\xBF") == 0) track.erase(0, 3);
+                std::istringstream input(track);
+                std::string artist, title;
+                std::getline(input, artist);
+                std::getline(input, title);
+                auto trim = [](std::string& value) {
+                    const auto start = value.find_first_not_of(" \t\r\n");
+                    const auto end = value.find_last_not_of(" \t\r\n");
+                    value = start == std::string::npos ? "" : value.substr(start, end - start + 1);
+                };
+                trim(artist);
+                trim(title);
+                auto online = ParseLrc(OnlineLyrics(artist, title));
+                if (!online.empty()) lines = std::move(online);
+            }
+            const std::lock_guard lock(loaderMutex_);
+            if (stopLoader_) return;
+            if (revision != loadRevision_) continue;
+            SetLines(std::move(lines));
         }
     }
 
@@ -365,13 +400,14 @@ private:
         HBRUSH clear = CreateSolidBrush(RGB(0, 0, 0));
         FillRect(bitmap_.dc, &area, clear);
         DeleteObject(clear);
+        GdiFlush();
         auto* pixels = static_cast<unsigned char*>(bitmap_.pixels);
         for (int index = 3; index < TextureBitmap::width * TextureBitmap::height * 4; index += 4) {
             pixels[index] = 0;
         }
         const auto font = CreateFontW(fontSize_.load(), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                                       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                      CLEARTYPE_QUALITY, FF_DONTCARE, L"Arial");
+                                      ANTIALIASED_QUALITY, FF_DONTCARE, L"Arial");
         const auto previousFont = SelectObject(bitmap_.dc, font);
         SetBkMode(bitmap_.dc, TRANSPARENT);
         SetTextColor(bitmap_.dc, RGB(255, 255, 255));
@@ -381,11 +417,11 @@ private:
         TextOutW(bitmap_.dc, (TextureBitmap::width - size.cx) / 2,
                  (TextureBitmap::height - size.cy) / 2, wide.c_str(),
                  static_cast<int>(wide.size()));
+        GdiFlush();
         for (int index = 0; index < TextureBitmap::width * TextureBitmap::height; ++index) {
             const auto offset = index * 4;
-            pixels[offset + 3] = (pixels[offset] || pixels[offset + 1] || pixels[offset + 2])
-                ? 255
-                : 0;
+            const auto coverage = std::max({pixels[offset], pixels[offset + 1], pixels[offset + 2]});
+            pixels[offset] = pixels[offset + 1] = pixels[offset + 2] = pixels[offset + 3] = coverage;
         }
         SelectObject(bitmap_.dc, previousFont);
         DeleteObject(font);
@@ -398,9 +434,15 @@ private:
     std::mutex dataMutex_;
     std::vector<LyricLine> lines_;
     std::string currentText_;
-    std::thread onlineThread_;
-    std::atomic<bool> stopOnline_{false};
-    std::atomic<bool> running_{false};
+    enum class Playback { None, Start, Stop };
+    std::atomic<Playback> playback_{Playback::None};
+    bool running_ = false;
+    bool autoStartArmed_ = true;
+    std::mutex loaderMutex_;
+    std::condition_variable loaderWake_;
+    unsigned loadRevision_ = 0;
+    bool stopLoader_ = false;
+    std::thread loaderThread_;
     std::atomic<int> source_{2};
     std::atomic<int> offsetMs_{0};
     std::atomic<int> fontSize_{72};
@@ -413,6 +455,7 @@ private:
     ffglex::FFGLShader shader_;
     ffglex::FFGLScreenQuad quad_;
     GLint opacityLocation_ = -1;
+    GLint scaleLocation_ = -1;
 };
 
 const CFFGLPluginInfo pluginInfo(

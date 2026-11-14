@@ -1,13 +1,30 @@
 # Downloaded SDKs and generated build output
 .build/
+build/
+out/
 dist/
 cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+DartConfiguration.tcl
+install_manifest.txt
+Testing/
 
 # Local Visual Studio and CMake settings
 .vs/
+.vscode/
+.idea/
 CMakeUserPresets.json
 *.user
 *.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.db-shm
+*.VC.db-wal
+*.code-workspace
 
 # Native build artifacts
 *.dll
@@ -16,10 +33,43 @@ CMakeUserPresets.json
 *.ilk
 *.lib
 *.obj
+*.o
 *.pdb
+*.pch
+*.ipch
+*.idb
+*.iobj
+*.ipdb
+*.tlog/
+*.lastbuildstate
 
 # Local settings and diagnostics
 .env
 .env.*
 !.env.example
 *.log
+*.dmp
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Private plugin configuration; keep the checked-in examples publishable
+.local/
+KineticTypography/text.txt
+LyricsDisplay/lyrics.lrc
+LyricsDisplay/track.txt
+
+# Python tools and operating-system metadata
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+Thumbs.db
+Desktop.ini

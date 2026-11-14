@@ -23,7 +23,7 @@ add_library(KineticTypography MODULE
 target_compile_features(KineticTypography PRIVATE cxx_std_17)
 target_compile_definitions(KineticTypography PRIVATE GLEW_STATIC)
 target_include_directories(KineticTypography SYSTEM PRIVATE "${FFGL_SOURCE}" "${FFGL_GLEW_DIR}/include")
-target_link_libraries(KineticTypography PRIVATE "${FFGL_GLEW_LIBRARY}" opengl32 ole32 uuid gdi32)
+target_link_libraries(KineticTypography PRIVATE "${FFGL_GLEW_LIBRARY}" opengl32 ole32 uuid gdi32 shell32)
 set_source_files_properties(src/KineticTypography.cpp src/WindowsAudio.cpp PROPERTIES COMPILE_OPTIONS "/W4")
 set_target_properties(KineticTypography PROPERTIES
     MSVC_RUNTIME_LIBRARY "MultiThreaded"

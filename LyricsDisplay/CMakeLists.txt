@@ -24,7 +24,7 @@ add_library(LyricsDisplay MODULE
 target_compile_features(LyricsDisplay PRIVATE cxx_std_17)
 target_compile_definitions(LyricsDisplay PRIVATE GLEW_STATIC)
 target_include_directories(LyricsDisplay SYSTEM PRIVATE "${FFGL_SOURCE}" "${FFGL_GLEW_DIR}/include")
-target_link_libraries(LyricsDisplay PRIVATE "${FFGL_GLEW_LIBRARY}" opengl32 ole32 uuid gdi32 winhttp)
+target_link_libraries(LyricsDisplay PRIVATE "${FFGL_GLEW_LIBRARY}" opengl32 ole32 uuid gdi32 shell32 winhttp)
 set_source_files_properties(src/LyricsDisplay.cpp src/LrcParser.cpp src/WindowsAudio.cpp PROPERTIES COMPILE_OPTIONS "/W4")
 set_target_properties(LyricsDisplay PROPERTIES
     MSVC_RUNTIME_LIBRARY "MultiThreaded"

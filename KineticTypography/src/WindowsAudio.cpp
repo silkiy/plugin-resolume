@@ -30,8 +30,12 @@ struct WindowsAudio::State {
 
     void Run()
     {
+        struct Apartment {
+            HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            ~Apartment() { if (SUCCEEDED(result)) CoUninitialize(); }
+        } apartment;
+        if (FAILED(apartment.result)) return;
         while (!stop.load()) {
-            bool comInitialized = SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED));
             ComPtr<IMMDeviceEnumerator> enumerator;
             ComPtr<IMMDevice> device;
             ComPtr<IAudioClient> client;
@@ -63,13 +67,13 @@ struct WindowsAudio::State {
             }
             if (format) CoTaskMemFree(format);
             if (!active) {
-                if (comInitialized) CoUninitialize();
                 std::this_thread::sleep_for(std::chrono::milliseconds(500));
                 continue;
             }
             while (!stop.load()) {
                 UINT32 frames = 0;
-                if (FAILED(capture->GetNextPacketSize(&frames)) || frames == 0) {
+                if (FAILED(capture->GetNextPacketSize(&frames))) break;
+                if (frames == 0) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(8));
                     continue;
                 }
@@ -94,7 +98,6 @@ struct WindowsAudio::State {
                 capture->ReleaseBuffer(count);
             }
             client->Stop();
-            if (comInitialized) CoUninitialize();
         }
     }
 };

@@ -5,6 +5,7 @@
 #include <FFGLSDK.h>
 
 #include "WindowsAudio.h"
+#include "PluginPaths.h"
 
 #include <algorithm>
 #include <array>
@@ -48,6 +49,8 @@ uniform int mode;
 uniform float progress;
 uniform float amount;
 uniform vec3 tint;
+uniform vec2 textRange;
+uniform vec2 canvasScale;
 in vec2 uv;
 out vec4 color;
 
@@ -67,13 +70,14 @@ vec2 remap(vec2 point) {
 }
 
 void main() {
-    vec2 source = remap(uv);
+    vec2 point = (uv - 0.5) * canvasScale + 0.5;
+    vec2 source = remap(point);
     if (any(lessThan(source, vec2(0.0))) || any(greaterThan(source, vec2(1.0)))) {
         color = vec4(0.0);
         return;
     }
-    vec4 glyph = texture(typography, source);
-    if (mode == 0 && uv.x > clamp(progress, 0.0, 1.0)) glyph.a = 0.0;
+    vec4 glyph = texture(typography, vec2(source.x, 1.0 - source.y));
+    if (mode == 0 && point.x > mix(textRange.x, textRange.y, clamp(progress, 0.0, 1.0))) glyph = vec4(0.0);
     color = vec4(glyph.rgb * tint, glyph.a);
 }
 )";
@@ -83,10 +87,12 @@ struct Bitmap {
     static constexpr int height = 512;
     HBITMAP handle = nullptr;
     HDC dc = nullptr;
+    HGDIOBJ previous = nullptr;
     void* pixels = nullptr;
 
     bool Create()
     {
+        Release();
         dc = CreateCompatibleDC(nullptr);
         if (!dc) return false;
         BITMAPINFO info{};
@@ -98,25 +104,22 @@ struct Bitmap {
         info.bmiHeader.biCompression = BI_RGB;
         handle = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
         if (!handle) return false;
-        SelectObject(dc, handle);
+        previous = SelectObject(dc, handle);
         return true;
     }
 
-    ~Bitmap()
+    void Release()
     {
+        if (dc && previous) SelectObject(dc, previous);
         if (handle) DeleteObject(handle);
         if (dc) DeleteDC(dc);
+        handle = nullptr;
+        dc = nullptr;
+        previous = nullptr;
+        pixels = nullptr;
     }
+    ~Bitmap() { Release(); }
 };
-
-std::wstring ConfigDirectory()
-{
-    wchar_t profile[MAX_PATH]{};
-    const auto length = GetEnvironmentVariableW(L"USERPROFILE", profile, MAX_PATH);
-    return length > 0 && length < MAX_PATH
-        ? std::wstring(profile) + L"\\Documents\\Resolume\\KineticTypography"
-        : std::wstring{};
-}
 
 std::string ReadFile(const std::wstring& path)
 {
@@ -245,19 +248,28 @@ public:
         progressLocation_ = shader_.FindUniform("progress");
         amountLocation_ = shader_.FindUniform("amount");
         tintLocation_ = shader_.FindUniform("tint");
+        rangeLocation_ = shader_.FindUniform("textRange");
+        scaleLocation_ = shader_.FindUniform("canvasScale");
+        textureDirty_.store(true);
         return CFFGLPlugin::InitGL(viewport);
     }
 
     FFResult ProcessOpenGL(ProcessOpenGLStruct*) override
     {
         const auto peak = audio_.TakePeak();
-        if (peak >= 0.18f && peak > lastPeak_ * 1.18f) TriggerAnimation();
+        const auto now = Clock::now();
+        const float elapsedSeconds = std::chrono::duration<float>(now - animationStart_).count();
+        // Let a typewriter reveal finish and hold before an audio accent restarts it.
+        const float cooldown = mode_.load() == 0 ? 1.0f / speed_.load() + 1.0f : 0.2f;
+        if (peak >= 0.18f && peak > lastPeak_ * 1.18f && elapsedSeconds >= cooldown) TriggerAnimation();
         lastPeak_ = peak >= 0.0f ? peak : lastPeak_ * 0.96f;
         if (textureDirty_.exchange(false)) UpdateTexture();
+        if (triggerRequested_.exchange(false)) animationStart_ = now;
 
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             Clock::now() - animationStart_).count();
-        const float progress = std::fmod(static_cast<float>(elapsed) / 1000.0f * speed_.load(), 1.0f);
+        const float phase = static_cast<float>(elapsed) / 1000.0f * speed_.load();
+        const float progress = mode_.load() == 0 ? std::clamp(phase, 0.0f, 1.0f) : std::fmod(phase, 1.0f);
         const auto tint = HsvToRgb(hue_.load());
         ffglex::ScopedSamplerActivation unit(0);
         ffglex::Scoped2DTextureBinding binding(texture_);
@@ -266,6 +278,10 @@ public:
         glUniform1f(progressLocation_, progress);
         glUniform1f(amountLocation_, amount_.load());
         glUniform3fv(tintLocation_, 1, tint.data());
+        glUniform2f(rangeLocation_, textLeft_, textRight_);
+        const float aspect = currentViewport.height ? static_cast<float>(currentViewport.width) / currentViewport.height : 1.0f;
+        constexpr float canvasAspect = static_cast<float>(Bitmap::width) / Bitmap::height;
+        glUniform2f(scaleLocation_, std::max(1.0f, aspect / canvasAspect), std::max(1.0f, canvasAspect / aspect));
         quad_.Draw();
         return FF_SUCCESS;
     }
@@ -276,19 +292,16 @@ public:
         texture_ = 0;
         shader_.FreeGLResources();
         quad_.Release();
+        bitmap_.Release();
         return FF_SUCCESS;
     }
 
 private:
-    void TriggerAnimation() { animationStart_ = Clock::now(); }
+    void TriggerAnimation() { triggerRequested_.store(true); }
 
     void LoadText()
     {
-        const auto directory = ConfigDirectory();
-        if (directory.empty()) return;
-        std::error_code error;
-        std::filesystem::create_directories(directory, error);
-        auto text = ReadFile(directory + L"\\text.txt");
+        auto text = ReadFile(pluginfiles::ConfigFile(L"KineticTypography", L"text.txt").wstring());
         if (text.empty()) text = "Kinetic Typography";
         {
             const std::lock_guard lock(textMutex_);
@@ -305,13 +318,14 @@ private:
         HBRUSH clear = CreateSolidBrush(RGB(0, 0, 0));
         FillRect(bitmap_.dc, &area, clear);
         DeleteObject(clear);
+        GdiFlush();
         auto* pixels = static_cast<unsigned char*>(bitmap_.pixels);
         for (int index = 3; index < Bitmap::width * Bitmap::height * 4; index += 4) {
             pixels[index] = 0;
         }
         const auto font = CreateFontW(fontSize_.load(), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                                       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                      CLEARTYPE_QUALITY, FF_DONTCARE, L"Arial");
+                                      ANTIALIASED_QUALITY, FF_DONTCARE, L"Arial");
         const auto previous = SelectObject(bitmap_.dc, font);
         SetBkMode(bitmap_.dc, TRANSPARENT);
         SetTextColor(bitmap_.dc, RGB(255, 255, 255));
@@ -322,14 +336,26 @@ private:
         }
         const auto wide = ToWide(text);
         RECT bounds{64, 64, Bitmap::width - 64, Bitmap::height - 64};
+        RECT measured{64, 0, Bitmap::width - 64, 0};
+        DrawTextW(bitmap_.dc, wide.c_str(), static_cast<int>(wide.size()), &measured,
+                  DT_CALCRECT | DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+        bounds.top = std::max(0L, (Bitmap::height - measured.bottom) / 2);
+        bounds.bottom = Bitmap::height;
         DrawTextW(bitmap_.dc, wide.c_str(), static_cast<int>(wide.size()), &bounds,
-                  DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOPREFIX);
+                  DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+        GdiFlush();
+        int left = Bitmap::width, right = 0;
         for (int index = 0; index < Bitmap::width * Bitmap::height; ++index) {
             const auto offset = index * 4;
-            pixels[offset + 3] = (pixels[offset] || pixels[offset + 1] || pixels[offset + 2])
-                ? 255
-                : 0;
+            const auto coverage = std::max({pixels[offset], pixels[offset + 1], pixels[offset + 2]});
+            pixels[offset] = pixels[offset + 1] = pixels[offset + 2] = pixels[offset + 3] = coverage;
+            if (coverage) {
+                left = std::min(left, index % Bitmap::width);
+                right = std::max(right, index % Bitmap::width + 1);
+            }
         }
+        textLeft_ = static_cast<float>(left) / Bitmap::width;
+        textRight_ = static_cast<float>(right) / Bitmap::width;
         SelectObject(bitmap_.dc, previous);
         DeleteObject(font);
         ffglex::ScopedSamplerActivation unit(0);
@@ -346,6 +372,7 @@ private:
     std::atomic<int> fontSize_{110};
     std::atomic<float> hue_{0.55f};
     std::atomic<bool> textureDirty_{true};
+    std::atomic<bool> triggerRequested_{true};
     Clock::time_point animationStart_ = Clock::now();
     float lastPeak_ = 0.0f;
     WindowsAudio audio_;
@@ -357,6 +384,9 @@ private:
     GLint progressLocation_ = -1;
     GLint amountLocation_ = -1;
     GLint tintLocation_ = -1;
+    GLint rangeLocation_ = -1;
+    GLint scaleLocation_ = -1;
+    float textLeft_ = 0.0f, textRight_ = 1.0f;
 };
 
 const CFFGLPluginInfo pluginInfo(

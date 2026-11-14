@@ -83,10 +83,12 @@ Each `dist` folder also contains its `THIRD-PARTY-NOTICES.txt`. Keep that file w
 
 1. Build the plugin you want and locate its DLL in the table above.
 2. Close Resolume. Open **Documents** in File Explorer and copy the DLL to `Resolume Arena\Extra Effects` or `Resolume Avenue\Extra Effects`, depending on your edition. Create **Extra Effects** if needed. Use the Documents location shown by Windows if the folder is redirected to OneDrive.
-3. Open Resolume. Drag **Screen Capture**, **CueTimer**, or **LEDPanelCheck** from **Sources** to an empty clip slot. For **BeatMosaic**, drag it from **Effects** onto an existing visual clip, layer, or composition.
+3. Open Resolume. Drag **Screen Capture**, **CueTimer**, **LEDPanelCheck**, **KineticTypography**, or **LyricsDisplay** from **Sources** to an empty clip slot. For **BeatMosaic**, drag it from **Effects** onto an existing visual clip, layer, or composition.
 4. Trigger the visual clip and adjust the plugin in its clip or effect panel. Follow the linked project guide for its full workflow.
 
 To load plugins from another directory, add the directory in **Preferences → Video → FFGL Directories** and restart Resolume. To update or uninstall a plugin, close Resolume and replace or remove its DLL from the scanned directory before relaunching. [Resolume user folders](https://resolume.com/support/en/directory-list) · [FFGL directories](https://resolume.com/support/en/preferences) · [Sources](https://resolume.com/support/en/sources) · [Effects](https://resolume.com/support/en/effects)
+
+For KineticTypography and LyricsDisplay, create the configuration folders described in their project guides and copy the sample files from each project's `examples` directory as needed. Preserve existing personal text and lyrics when updating. Configuration follows the actual Windows Documents folder, including OneDrive. See each project guide for text editing, LRC timing, online lookup, manual controls, and verification steps.
 
 ## Troubleshooting
 
@@ -102,6 +104,14 @@ For plugin-specific symptoms, see [Screen Capture](ScreenCapture/README.md#troub
 
 ## Verification
 
-The previews come from plugin output rendered in standalone FFGL/OpenGL hosts. The tests covered window switching and resize, timer controls and transparency, exact one-pixel output and cabinet numbering, and BeatMosaic rendering and simulated triggers. Windows playback loopback was also verified separately. Live verification in Resolume Arena and on a physical LED wall remains pending.
+The previews come from plugin output rendered in standalone FFGL/OpenGL hosts. The tests covered window switching and resize, timer controls and transparency, exact one-pixel output and cabinet numbering, and BeatMosaic rendering and simulated triggers. Windows playback loopback was also verified separately. KineticTypography and LyricsDisplay were additionally verified in Resolume Arena 7.28, including visible text output and lyric Start/Stop controls. Live verification of the other plugins and testing on a physical LED wall remain pending.
 
-Third-party notices are available alongside each project. [Screen Capture](ScreenCapture/THIRD-PARTY-NOTICES.txt) · [CueTimer](CueTimer/THIRD-PARTY-NOTICES.txt) · [LEDPanelCheck](LEDPanelCheck/THIRD-PARTY-NOTICES.txt) · [BeatMosaic](BeatMosaic/THIRD-PARTY-NOTICES.txt)
+Third-party notices are available alongside each project. [Screen Capture](ScreenCapture/THIRD-PARTY-NOTICES.txt) · [CueTimer](CueTimer/THIRD-PARTY-NOTICES.txt) · [LEDPanelCheck](LEDPanelCheck/THIRD-PARTY-NOTICES.txt) · [BeatMosaic](BeatMosaic/THIRD-PARTY-NOTICES.txt) · [KineticTypography](KineticTypography/THIRD-PARTY-NOTICES.txt) · [LyricsDisplay](LyricsDisplay/THIRD-PARTY-NOTICES.txt)
+
+## Repository hygiene
+
+Commit source code, CMake files, build scripts, documentation, notices, and the publishable sample files under each project's `examples` directory. Keep documentation images under `docs/images`.
+
+The root `.gitignore` excludes downloaded SDKs and generated files in `.build`, `build`, `out`, `dist`, and CMake build directories, along with compiled binaries, editor settings, logs, temporary files, and common credential files. Personal plugin configuration placed directly in a project folder is also ignored; the checked-in examples remain available to new users. Keep private portable configuration under `.local` if you store it inside this checkout.
+
+Before committing, inspect `git status --short`, run `git diff --check`, and review the staged diff with `git diff --cached`. Distribute compiled DLLs as release downloads with their notices instead of adding build output to the source repository.

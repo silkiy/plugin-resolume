@@ -43,25 +43,34 @@ std::vector<LyricLine> ParseLrc(const std::string& contents)
             }
             const auto colon = row.find(':', cursor + 1);
             const auto dot = row.find('.', colon == std::string::npos ? close : colon + 1);
-            if (colon == std::string::npos || colon >= close || dot == std::string::npos || dot >= close) {
+            if (colon == std::string::npos || colon >= close) {
                 break;
             }
+            const auto secondsEnd = dot != std::string::npos && dot < close ? dot : close;
             int minutes = 0;
             int seconds = 0;
-            int centiseconds = 0;
+            int milliseconds = 0;
             auto parse = [](const char* begin, const char* end, int& result) {
                 const auto parsed = std::from_chars(begin, end, result);
                 return parsed.ec == std::errc{} && parsed.ptr == end;
             };
             if (!parse(row.data() + cursor + 1, row.data() + colon, minutes) ||
-                !parse(row.data() + colon + 1, row.data() + dot, seconds) ||
-                !parse(row.data() + dot + 1, row.data() + close, centiseconds) ||
-                seconds >= 60 || centiseconds > 99) {
+                !parse(row.data() + colon + 1, row.data() + secondsEnd, seconds) ||
+                minutes < 0 || seconds < 0 || seconds >= 60) {
                 break;
+            }
+            if (secondsEnd != close) {
+                const auto digits = close - secondsEnd - 1;
+                if (digits < 1 || digits > 3 ||
+                    !std::all_of(row.begin() + secondsEnd + 1, row.begin() + close,
+                                 [](char c) { return c >= '0' && c <= '9'; }) ||
+                    !parse(row.data() + secondsEnd + 1, row.data() + close, milliseconds)) break;
+                if (digits == 1) milliseconds *= 100;
+                if (digits == 2) milliseconds *= 10;
             }
             timestamps.emplace_back(std::chrono::minutes(minutes) +
                                     std::chrono::seconds(seconds) +
-                                    std::chrono::milliseconds(centiseconds * 10));
+                                    std::chrono::milliseconds(milliseconds));
             cursor = close + 1;
         }
         const auto text = Trim(row.substr(cursor));
