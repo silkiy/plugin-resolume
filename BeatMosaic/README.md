@@ -2,7 +2,7 @@
 
 BeatMosaic is a Windows x64 FFGL effect for Resolume Arena and Avenue. It applies short visual accents to the clip, layer, or composition you are already playing. Choose audio from the laptop, a sound card, Resolume's FFT controls, the Resolume tempo, or a manual trigger.
 
-![BeatMosaic showing a synthetic clip before and after a 4 × 4 Shuffle Hit](../docs/images/beat-mosaic.png)
+![BeatMosaic rendering its twelve effects on a synthetic clip](../docs/images/beat-mosaic.png)
 
 ## Requirements and installation
 
@@ -44,11 +44,11 @@ The Windows input modes detect transients in the bass range. **Resolume FFT** re
 | Control | Default | Behavior |
 | --- | --- | --- |
 | **Input** | **Windows Output** | Selects **Windows Output**, **Windows Input**, **Resolume FFT**, **Resolume BPM**, or **Manual**. |
-| **Pattern** | **Slice** | Chooses the visual response described below. |
-| **Grid** | **4 x 4** | Uses four or eight slices per frame in **Slice**, or a square grid in **Wave** and **Shuffle**. |
+| **Pattern** | **Slice** | Selects any of the twelve effects below, or audio-adaptive **Random**. |
+| **Grid** | **4 x 4** | Controls strip, block, sector, or repetition density in the spatial effects. **Punch Zoom**, **Prism Spin**, **Scan Sweep**, and **Strobe** use their own geometry. |
 | **Rate** | **Every Beat** | Responds to every detected accent or every second or fourth accent. In **Resolume BPM** mode, the interval uses host beats. |
 | **Amount** | `65%` | Sets the base effect strength. At `0%`, the original image passes through. |
-| **Brightness** | `100%` | Multiplies the effect strength for every pattern. Use values above `100%` for a stronger Slice, Wave, Shuffle, or Strobe accent. Range `0–400%`. |
+| **Brightness** | `100%` | Multiplies the effect strength for every pattern. Range `0–400%`. The shader clamps the combined strength to its maximum, preserving valid colors and alpha. |
 | **Sensitivity** | `65%` | Increases or decreases responsiveness to audio accents. |
 | **Decay** | `180` ms | Sets how long an accent takes to fade back toward the original frame. Range `80–600` ms. |
 | **Audio Level** | `0%` | Receives the FFT level in **Resolume FFT** mode. |
@@ -57,9 +57,29 @@ The Windows input modes detect transients in the bass range. **Resolume FFT** re
 | Pattern | Output |
 | --- | --- |
 | **Slice** | Alternating horizontal strips shift in opposite directions and slide back as the accent decays. |
-| **Wave** | Tiles move with a staggered wave across the grid. |
-| **Shuffle** | The tiles are rearranged on a trigger and blend back toward the original image. |
-| **Strobe** | A brief lift in the brightness of the existing pixels, with the original transparency preserved. Brightness controls the white flash intensity; at high values it can reach full white. Pulses last at most 140 ms and start at least 350 ms apart. |
+| **Wave** | A wide wave warps and zooms the image, with a red channel offset that increases with the accent. |
+| **Shuffle** | Tiles jump to different positions, flip, and zoom with dark seams, then blend back toward the original image. |
+| **Strobe** | Alternating bright and dark shutters create a strong contrast pulse. Shutters alternate direction between hits and preserve the original alpha. Pulses last at most 140 ms and start at least 350 ms apart across fixed and Random modes. |
+| **RGB Glitch** | Separates red and blue channels in horizontal bands, with the direction and offset varying on each hit. Preserves the original alpha. |
+| **Punch Zoom** | Pulls the image toward the center with a strong zoom and a short radial blur trail. |
+| **Kaleido** | Folds the image into mirrored radial sectors with a different orientation on each hit. **Grid** controls sector density. |
+| **Pixel Burst** | Breaks the image into chunky, aspect-correct pixel blocks. **Grid** controls the block density. |
+| **Prism Spin** | Rotates and zooms the image while splitting red and blue around the center. The spin direction alternates between hits. |
+| **Mirror Fold** | Repeats the image in mirrored rectangular cells with a different fold direction on each hit. |
+| **Tunnel Echo** | Rearranges the current frame into nested rectangular rings with alternating twist. |
+| **Scan Sweep** | Moves a cyan-tinted distortion band across the image during one pulse, alternating between horizontal and vertical sweeps. |
+| **Random** | Selects a pattern on each accepted accent and holds it for the entire pulse. Softer accents favor Slice, Wave, Kaleido, Mirror Fold, and Scan Sweep. Stronger accents favor Shuffle, RGB Glitch, Punch Zoom, Pixel Burst, Prism Spin, and Tunnel Echo. Outstanding peaks can select Strobe when its cooldown permits. |
+
+## Run an audio-adaptive set
+
+1. Set **Input** to **Windows Output**, **Windows Input**, or **Resolume FFT**, following the routing instructions above.
+2. Select **Pattern → Random**, **Rate → Every Beat**, **Amount → 80%**, **Brightness → 100%**, and **Decay → 250 ms** as a starting point.
+3. Play the music and adjust **Sensitivity** until the detected accents match the passages you want to emphasize. Compare the quieter sections and stronger drops.
+4. Increase **Amount** toward `100%` for a more pronounced look, or reduce it to keep more of the original image visible. A longer **Decay** extends Wave and Shuffle, while Strobe retains its duration limit.
+
+Random compares each detected accent level with a moving average of recent accents. It varies the choice without immediately repeating a non-Strobe pattern. **Rate** still controls which accents are rendered. With **Manual → Hit** or **Resolume BPM**, Random varies its selection using the trigger sequence because those modes supply timing rather than measured audio intensity.
+
+Strobe produces high-contrast flashes. Check the venue's flashing-light guidance before use. Its internal timing limits apply to this effect instance. [Photosensitivity information](https://www.epilepsy.com/what-is-epilepsy/seizure-triggers/photosensitivity)
 
 To accent a drop manually, select **Manual**, choose **Slice** or **Shuffle**, and press **Hit** on cue. The effect returns to the original visual after the accent. BeatMosaic analyzes audio locally while it renders and keeps only level measurements for the visual response.
 
@@ -86,4 +106,4 @@ From the `BeatMosaic` directory, run `.\build.ps1`. The script downloads the pin
 
 ## Verification
 
-Standalone FFGL/OpenGL tests verified the four patterns, exact passthrough on padded textures, alpha handling, manual triggers and decay, Strobe limits, and simulated FFT and host beat input. A separate WASAPI test measured real audio from the default Windows playback device. The recording endpoint was detected by Windows. Live validation of the sound card, External FFT mapping, and beat timing in Resolume is pending.
+Standalone FFGL/OpenGL tests verified all twelve effects, Random coverage of the added effects and strong-accent selection, exact passthrough on padded textures, premultiplied alpha at maximum brightness, portrait rendering, manual triggers and decay, Strobe limits, and simulated FFT and host beat input. A separate WASAPI test measured real audio from the default Windows playback device. The recording endpoint was detected by Windows. Live validation of this build's look and timing in Resolume is pending.

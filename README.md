@@ -30,9 +30,9 @@ The shader uses integer framebuffer coordinates to keep the patterns aligned aft
 
 ## BeatMosaic
 
-An audio-reactive effect for live VJ visuals. **Slice**, **Wave**, **Shuffle**, and **Strobe** apply brief accents to an existing clip or layer. It can follow the default Windows playback or recording device, Resolume FFT, or the Resolume beat grid. **Hit** provides a manual accent.
+An audio-reactive effect for live VJ visuals with twelve patterns, including **Slice**, **Wave**, **Shuffle**, **Strobe**, **RGB Glitch**, **Punch Zoom**, **Kaleido**, **Pixel Burst**, **Prism Spin**, **Mirror Fold**, **Tunnel Echo**, and **Scan Sweep**. **Random** varies the pattern according to the strength of detected accents. It can follow the default Windows playback or recording device, Resolume FFT, or the Resolume beat grid. **Hit** provides a manual accent.
 
-![BeatMosaic showing a synthetic clip before and after a 4 × 4 Shuffle Hit](docs/images/beat-mosaic.png)
+![BeatMosaic rendering its twelve effects on a synthetic clip](docs/images/beat-mosaic.png)
 
 [Usage and build guide](BeatMosaic/README.md) · [Source code](BeatMosaic/src)
 

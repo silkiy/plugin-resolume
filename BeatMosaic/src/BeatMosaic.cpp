@@ -20,6 +20,7 @@ enum Parameter : FFUInt32 {
 };
 enum InputMode { WindowsOutput, WindowsInput, ResolumeFft, ResolumeBpm, Manual };
 constexpr int strobePattern = 3;
+constexpr int randomPattern = 4;
 constexpr float defaultAmount = 0.65f;
 constexpr float defaultBrightness = 100.0f;
 constexpr float defaultSensitivity = 0.65f;
@@ -29,7 +30,10 @@ constexpr float maxDecay = 600.0f;
 constexpr auto minimumStrobeInterval = 350ms;
 constexpr auto audioPacketHold = 80ms;
 constexpr std::array inputNames{"Windows Output", "Windows Input", "Resolume FFT", "Resolume BPM", "Manual"};
-constexpr std::array patternNames{"Slice", "Wave", "Shuffle", "Strobe"};
+constexpr std::array patternNames{
+    "Slice", "Wave", "Shuffle", "Strobe", "Random", "RGB Glitch", "Punch Zoom", "Kaleido",
+    "Pixel Burst", "Prism Spin", "Mirror Fold", "Tunnel Echo", "Scan Sweep"
+};
 
 class OnsetDetector {
 public:
@@ -160,6 +164,7 @@ public:
         stepLocation_ = shader_.FindUniform("stepIndex");
         amountLocation_ = shader_.FindUniform("amount");
         pulseLocation_ = shader_.FindUniform("pulse");
+        aspectLocation_ = shader_.FindUniform("frameAspect");
         return CFFGLPlugin::InitGL(viewport);
     }
 
@@ -179,9 +184,10 @@ public:
         const int pattern = static_cast<int>(values_[Pattern].load());
         const int rate = static_cast<int>(values_[Rate].load());
         UpdateControls(mode, pattern, rate);
-        const bool automaticHit = AutomaticHit(mode, rate, now);
-        if (hitRequested_.exchange(false) || automaticHit) {
-            Trigger(pattern, now);
+        const auto automaticHit = AutomaticHit(mode, rate, now);
+        const bool manualHit = hitRequested_.exchange(false);
+        if (manualHit || automaticHit) {
+            Trigger(pattern, now, manualHit ? 1.0f : *automaticHit);
         }
 
         const auto maxUv = GetMaxGLTexCoords(texture);
@@ -192,12 +198,13 @@ public:
         glUniform2f(uvLocation_, maxUv.s, maxUv.t);
         glUniform2f(texelLocation_, 0.5f / static_cast<float>(texture.HardwareWidth),
             0.5f / static_cast<float>(texture.HardwareHeight));
-        glUniform1i(patternLocation_, pattern);
+        glUniform1i(patternLocation_, renderedPattern_);
         glUniform1i(gridLocation_, static_cast<int>(values_[Grid].load()));
         glUniform1i(stepLocation_, static_cast<int>(stepIndex_));
         const float brightness = values_[Brightness].load() / 100.0f;
         glUniform1f(amountLocation_, values_[Amount].load() * brightness);
-        glUniform1f(pulseLocation_, Pulse(pattern, now));
+        glUniform1f(pulseLocation_, Pulse(renderedPattern_, now));
+        glUniform1f(aspectLocation_, static_cast<float>(texture.Width) / static_cast<float>(texture.Height));
         quad_.Draw();
         return FF_SUCCESS;
     }
@@ -241,6 +248,7 @@ private:
             lastAudioPacket_.reset();
             previousPhase_.reset();
             beatPosition_ = 0;
+            averageAccent_ = 0.0f;
             lastPulse_.reset();
         }
         if (activePattern_ != pattern) {
@@ -254,25 +262,28 @@ private:
         }
     }
 
-    bool AutomaticHit(InputMode mode, int rate, Time now)
+    std::optional<float> AutomaticHit(InputMode mode, int rate, Time now)
     {
         if (mode == Manual) {
-            return false;
+            return std::nullopt;
         }
         if (mode == ResolumeBpm) {
             const float phase = hostPhase_.load();
             if (phase < 0.0f) {
                 previousPhase_.reset();
-                return false;
+                return std::nullopt;
             }
             const auto previous = previousPhase_;
             previousPhase_ = phase;
             if (!previous) {
-                return false;
+                return std::nullopt;
             }
             const float slots = 4.0f / static_cast<float>(rate);
             const auto slot = [slots](float p) { return std::floor(std::min(p, 0.999999f) * slots); };
-            return *previous - phase > 0.5f || slot(phase) > slot(*previous);
+            if (*previous - phase > 0.5f || slot(phase) > slot(*previous)) {
+                return 1.0f;
+            }
+            return std::nullopt;
         }
 
         float level = values_[AudioLevel].load();
@@ -285,15 +296,46 @@ private:
             level = lastAudioPacket_ && now - *lastAudioPacket_ <= audioPacketHold ? audioPeak_ : 0.0f;
         }
         if (!onset_.Update(level, values_[Sensitivity].load(), now)) {
-            return false;
+            return std::nullopt;
         }
+        const float accent = averageAccent_ > 0.0001f ? level / averageAccent_ : 1.0f;
+        averageAccent_ += (level - averageAccent_) * (averageAccent_ == 0.0f ? 1.0f : 0.18f);
         const bool selected = beatPosition_ == 0;
         beatPosition_ = (beatPosition_ + 1) % rate;
-        return selected;
+        return selected ? std::optional<float>(accent) : std::nullopt;
     }
 
-    void Trigger(int pattern, Time now)
+    int ChoosePattern(float accent, Time now) const
     {
+        const unsigned hash = (stepIndex_ + 1u) * 2654435761u;
+        const auto pick = [this, hash](const auto& pool) {
+            auto index = (hash ^ (hash >> 16u)) % pool.size();
+            if (pool[index] == renderedPattern_) {
+                index = (index + 1) % pool.size();
+            }
+            return pool[index];
+        };
+        int choice;
+        if (accent >= 1.3f && (!lastStrobe_ || now - *lastStrobe_ >= minimumStrobeInterval)) {
+            choice = strobePattern;
+        } else if (accent < 0.9f) {
+            choice = pick(std::array{0, 1, 7, 10, 12});
+        } else if (accent >= 1.1f) {
+            choice = pick(std::array{2, 5, 6, 8, 9, 11});
+        } else {
+            choice = pick(std::array{0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12});
+            if (choice == strobePattern && lastStrobe_ && now - *lastStrobe_ < minimumStrobeInterval) {
+                choice = 2;
+            }
+        }
+        return choice;
+    }
+
+    void Trigger(int pattern, Time now, float accent)
+    {
+        if (pattern == randomPattern) {
+            pattern = ChoosePattern(accent, now);
+        }
         if (pattern == strobePattern) {
             if (lastStrobe_ && now - *lastStrobe_ < minimumStrobeInterval) {
                 return;
@@ -301,6 +343,7 @@ private:
             lastStrobe_ = now;
         }
         lastPulse_ = now;
+        renderedPattern_ = pattern;
         stepIndex_ = (stepIndex_ + 1u) & 0x7fffu;
     }
 
@@ -330,6 +373,8 @@ private:
     std::optional<Time> lastPulse_;
     std::optional<Time> lastStrobe_;
     float audioPeak_ = 0.0f;
+    float averageAccent_ = 0.0f;
+    int renderedPattern_ = 0;
     int activePattern_ = 0;
     int activeRate_ = 1;
     int beatPosition_ = 0;
@@ -345,9 +390,10 @@ private:
     GLint stepLocation_ = -1;
     GLint amountLocation_ = -1;
     GLint pulseLocation_ = -1;
+    GLint aspectLocation_ = -1;
 };
 
 const CFFGLPluginInfo pluginInfo(
-    PluginFactory<BeatMosaic>, "LDbm", "BeatMosaic", 2, 1, 1, 0, FF_EFFECT,
+    PluginFactory<BeatMosaic>, "LDbm", "BeatMosaic", 2, 1, 1, 3, FF_EFFECT,
     "Audio-reactive tile and brightness accents for live visuals.", "BeatMosaic for Resolume");
 }
